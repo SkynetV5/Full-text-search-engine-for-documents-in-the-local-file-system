@@ -109,4 +109,4 @@ def search(query_text,db_path,top_n=3):
 # text = input("Wpisz tekst:")
 text = "Python jest tak szybki że aż python"
 # tf_dict = prepare_query(text,STOPWORDS)
-search(text,"indeks.db")
+search(text,"../indeks.db")

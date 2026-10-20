@@ -1,7 +1,7 @@
 import ast
 import sqlite3
 
-conn = sqlite3.connect("indeks.db")
+conn = sqlite3.connect("../indeks.db")
 cursor = conn.cursor()
 
 #Download data

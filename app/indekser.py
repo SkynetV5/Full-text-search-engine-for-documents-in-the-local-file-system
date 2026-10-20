@@ -2,6 +2,7 @@ import math
 import sqlite3
 import apache_beam as beam
 from apache_beam.io import fileio
+import os
 
 STOPWORDS = {"jest", "i", "w", "na", "z", "a"}
 
@@ -14,7 +15,7 @@ def read_file(readable_file):
     }
 
 def create_database():
-    conn = sqlite3.connect("indeks.db")
+    conn = sqlite3.connect("../indeks.db")
     cursor = conn.cursor()
     cursor.execute("DROP TABLE IF EXISTS dokumenty")
     cursor.execute("CREATE TABLE dokumenty (doc_id TEXT PRIMARY KEY, " \
@@ -62,54 +63,55 @@ class TFIDF_I_Save(beam.DoFn):
 
             tfidf_map[word] = round(tf * idf, 4)
 
-        conn = sqlite3.connect("indeks.db")
+        conn = sqlite3.connect("../indeks.db")
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO dokumenty values (?,?,?)", (path,path,str(tfidf_map)))
+        cursor.execute("INSERT OR REPLACE INTO dokumenty values (?,?,?)", (path,path,str(tfidf_map)))
         conn.commit()
         conn.close()
 
         yield path
 
-create_database()
+if __name__ == "__main__":
+    create_database()
 
-# import os
-# import glob
+    # import os
+    # import glob
 
-# print("Katalog roboczy:", os.getcwd())
-# print("Znalezione pliki:", glob.glob("docs/*.txt"))
+    # print("Katalog roboczy:", os.getcwd())
+    # print("Znalezione pliki:", glob.glob("docs/*.txt"))
 
-with beam.Pipeline() as pipeline:
-    parsed_docs = (
-        pipeline
-        | "1. Znajdz pliki" >> fileio.MatchFiles('docs\\*.txt')
-        | "2. Odczytaj pliki" >> fileio.ReadMatches()
-        | "3. Parsuj pliki" >> beam.Map(read_file)
-        | "4. Oblicz TF" >> beam.ParDo(TF())
-        
-    )
+    with beam.Pipeline() as pipeline:
+        parsed_docs = (
+            pipeline
+            | "1. Znajdz pliki" >> fileio.MatchFiles('docs\\*.txt')
+            | "2. Odczytaj pliki" >> fileio.ReadMatches()
+            | "3. Parsuj pliki" >> beam.Map(read_file)
+            | "4. Oblicz TF" >> beam.ParDo(TF())
+            
+        )
 
-    total_docs = (
+        total_docs = (
+            parsed_docs
+            | "Count Docs" >> beam.combiners.Count.Globally()
+        )
+
+        unique_words_per_doc = (
         parsed_docs
-        | "Count Docs" >> beam.combiners.Count.Globally()
-    )
+        | "Pobierz unikalne slowa" >> beam.Map(lambda doc: list(set(doc["tf"].keys())))
+        | "Spłaszcz do listy słów" >> beam.FlatMap(lambda words: words)
+        )
 
-    unique_words_per_doc = (
-    parsed_docs
-    | "Pobierz unikalne slowa" >> beam.Map(lambda doc: list(set(doc["tf"].keys())))
-    | "Spłaszcz do listy słów" >> beam.FlatMap(lambda words: words)
-    )
+    
+        df_counts = (
+            unique_words_per_doc
+            | "Zlicz DF" >> beam.combiners.Count.PerElement()
+        )
 
-   
-    df_counts = (
-        unique_words_per_doc
-        | "Zlicz DF" >> beam.combiners.Count.PerElement()
-    )
-
-    (
-        parsed_docs
-     | "Zapis do bazy" >> beam.ParDo(
-    TFIDF_I_Save(),
-    n_docs=beam.pvalue.AsSingleton(total_docs), 
-    df_dict=beam.pvalue.AsDict(df_counts)       
-    ))
-        
+        (
+            parsed_docs
+        | "Zapis do bazy" >> beam.ParDo(
+        TFIDF_I_Save(),
+        n_docs=beam.pvalue.AsSingleton(total_docs), 
+        df_dict=beam.pvalue.AsDict(df_counts)       
+        ))
+            
